@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MOBKA</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body {
+      margin: 0;
+      background: #000;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: manipulation;
+      font-family: sans-serif;
+    }
+    canvas {
+      width: 90vmin;
+      height: 67vmin;
+      background: #111;
+      image-rendering: pixelated;
+      border: 2px solid #888;
+    }
+    .controls {
+      margin-top: 15px;
+      display: grid;
+      grid-template-columns: repeat(3, 60px);
+      gap: 8px;
+    }
+    button {
+      height: 50px;
+      font-size: 22px;
+      background: #2a2a30;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 8px;
+      touch-action: none;
+    }
+    button:active {
+      background: #4a4a55;
+    }
+  </style>
+</head>
+<body onpointerdown="A()">
+
+  <canvas id="c" width="240" height="180"></canvas>
+
+  <div class="controls">
+    <button onpointerdown="this.setPointerCapture(event.pointerId);k.w=1" onpointerup="k.w=0" onpointercancel="k.w=0" style="grid-column: 2;">▲</button>
+    <button onpointerdown="this.setPointerCapture(event.pointerId);k.a=1" onpointerup="k.a=0" onpointercancel="k.a=0" style="grid-row: 2; grid-column: 1;">◀</button>
+    <button onpointerdown="this.setPointerCapture(event.pointerId);k.s=1" onpointerup="k.s=0" onpointercancel="k.s=0" style="grid-row: 2; grid-column: 2;">▼</button>
+    <button onpointerdown="this.setPointerCapture(event.pointerId);k.d=1" onpointerup="k.d=0" onpointercancel="k.d=0" style="grid-row: 2; grid-column: 3;">▶</button>
+  </div>
+
+  <script>
+    const x = c.getContext('2d');
+    const M = Math;
+    const S = M.sin;
+    const C1 = M.cos;
+
+    // Карта и стены
+    const W = (u, v) => {
+      u |= 0;
+      v |= 0;
+      if (u * u + v * v < 2) return 0;
+      return (M.abs(S(u * 12.98 + v * 78.23) * 43758) % 1) > 0.65;
+    };
+
+    let px = 0.5, py = 0.5, pa = 0;
+    let mx = 4, my = 4;
+
+    const I = new Image();
+    I.crossOrigin = 'anonymous';
+    I.src = 'https://thumb.wikimedia.org/wikipedia/commons/thumb/0/00/Belousov-HR.jpg/330px-Belousov-HR.jpg';
+
+    const k = {};
+    window.onkeydown = e => k[e.key.toLowerCase()] = 1;
+    window.onkeyup = e => k[e.key.toLowerCase()] = 0;
+    window.onpointerup = window.onpointercancel = () => {
+      k.w = k.a = k.s = k.d = 0;
+    };
+
+    const Z = [];
+    let C = null, O = null, G = null;
+
+    // Аудиодвижок
+    const A = () => {
+      if (!C) {
+        C = new (window.AudioContext || window.webkitAudioContext)();
+        O = C.createOscillator();
+        G = C.createGain();
+        O.type = 'sawtooth';
+        G.gain.value = 0;
+        O.connect(G);
+        G.connect(C.destination);
+        O.start();
+      }
+    };
+
+    // Главный цикл
+    setInterval(() => {
+      const d0 = M.hypot(px - mx, py - my);
+
+      if (C) {
+        O.frequency.setValueAtTime(M.max(40, M.min(300, 320 - d0 * 35)), C.currentTime);
+        G.gain.setValueAtTime(M.max(0, M.min(0.25, (8 - d0) / 18)), C.currentTime);
+      }
+
+      // Условие проигрыша
+      if (d0 < 0.4) {
+        if (C) O.frequency.setValueAtTime(30, C.currentTime);
+        x.fillStyle = 'red';
+        x.fillRect(0, 0, 240, 180);
+        x.fillStyle = '#fff';
+        x.font = 'bold 20px sans-serif';
+        x.fillText('МОБИЛИЗОВАН', 40, 95);
+        return;
+      }
+
+      // Поворот
+      if (k.a || k.arrowleft) pa -= 0.05;
+      if (k.d || k.arrowright) pa += 0.05;
+
+      // Движение игрока
+      const dx = C1(pa) * 0.06;
+      const dy = S(pa) * 0.06;
+      if (k.w || k.arrowup) {
+        if (!W(px + dx * 2, py)) px += dx;
+        if (!W(px, py + dy * 2)) py += dy;
+      }
+      if (k.s || k.arrowdown) {
+        if (!W(px - dx * 2, py)) px -= dx;
+        if (!W(px, py - dy * 2)) py -= dy;
+      }
+
+      // Преследование
+      const ang = M.atan2(py - my, px - mx);
+      mx += C1(ang) * 0.035;
+      my += S(ang) * 0.035;
+
+      // Отрисовка пола и потолка
+      x.fillStyle = '#1e1e28';
+      x.fillRect(0, 0, 240, 90);
+      x.fillStyle = '#141414';
+      x.fillRect(0, 90, 240, 90);
+
+      // Raycasting стен
+      for (let i = 0; i < 240; i++) {
+        const ra = pa - 0.5 + (i / 240);
+        const rx = C1(ra);
+        const ry = S(ra);
+        let d = 0;
+        while (d < 12) {
+          d += 0.05;
+          if (W(px + rx * d, py + ry * d)) break;
+        }
+        const z = d * C1(ra - pa);
+        Z[i] = z;
+        const h = M.min(180, 140 / z);
+        const b = M.max(20, 255 - z * 20);
+        x.fillStyle = `rgb(${b * 0.2}, ${b * 0.9}, ${b})`;
+        x.fillRect(i, 90 - h / 2, 1, h);
+      }
+
+      // Отрисовка спрайта
+      const sx = mx - px;
+      const sy = my - py;
+      const td = M.hypot(sx, sy);
+      let ta = M.atan2(sy, sx) - pa;
+      while (ta < -M.PI) ta += M.PI * 2;
+      while (ta > M.PI) ta -= M.PI * 2;
+
+      if (td > 0.2 && M.abs(ta) < 1.2) {
+        const sw = 140 / td;
+        const col = (ta + 0.5) * 240;
+        if (col > 0 && col < 240 && td < Z[col | 0]) {
+          x.drawImage(I, col - sw / 2, 90 - sw / 2, sw, sw);
+        }
+      }
+    }, 30);
+  </script>
+</body>
+</html>
